@@ -1,0 +1,33 @@
+{
+    "name": "super-admin-ext/log-viewer",
+    "description": "Log viewer for open admin",
+    "type": "library",
+    "keywords": ["super-admin", "log", "viewer"],
+    "homepage": "https://github.com/super-admin-org/log-viewer",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "super-admin",
+            "email": "info@super-admin.org"
+        }
+    ],
+    "require": {
+        "php": ">=7.0.0",
+        "super-admin-org/super-admin": ">=1.0.12"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "~6.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "SuperAdmin\\Admin\\LogViewer\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "SuperAdmin\\Admin\\LogViewer\\LogViewerServiceProvider"
+            ]
+        }
+    }
+}
