@@ -1,5 +1,5 @@
 {
-    "name": "super-admin-ext/log-viewer",
+    "name": "super-admin-org/log-viewer",
     "description": "Log viewer for open admin",
     "type": "library",
     "keywords": ["super-admin", "log", "viewer"],

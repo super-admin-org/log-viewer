@@ -2,8 +2,8 @@ Log viewer for super-admin
 ============================
 
 [![StyleCI](https://styleci.io/repos/491059283/shield?branch=main)](https://styleci.io/repos/491059283)
-[![Packagist](https://img.shields.io/github/license/super-admin-org/log-viewer.svg?style=flat-square&color=brightgreen)](https://packagist.org/packages/super-admin-ext/log-viewer)
-[![Total Downloads](https://img.shields.io/packagist/dt/super-admin-ext/log-viewer.svg?style=flat-square)](https://packagist.org/packages/super-admin-ext/log-viewer)
+[![Packagist](https://img.shields.io/github/license/super-admin-org/log-viewer.svg?style=flat-square&color=brightgreen)](https://packagist.org/packages/super-admin-org/log-viewer)
+[![Total Downloads](https://img.shields.io/packagist/dt/super-admin-org/log-viewer.svg?style=flat-square)](https://packagist.org/packages/super-admin-org/log-viewer)
 [![Pull request welcome](https://img.shields.io/badge/pr-welcome-green.svg?style=flat-square&color=brightgreen)]()
 
 ## Screenshot
@@ -14,7 +14,7 @@ Log viewer for super-admin
 ## Installation
 
 ```
-$ composer require super-admin-ext/log-viewer
+$ composer require super-admin-org/log-viewer
 
 $ php artisan admin:import log-viewer
 ```
