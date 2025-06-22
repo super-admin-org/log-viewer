@@ -13,10 +13,10 @@
     ],
     "require": {
         "php": ">=7.0.0",
-        "super-admin-org/super-admin": "dev-main"
+        "super-admin-org/super-admin": "^1.0"
     },
     "require-dev": {
-        "phpunit/phpunit": "~6.0"
+        "phpunit/phpunit": "=>6.0"
     },
     "autoload": {
         "psr-4": {
