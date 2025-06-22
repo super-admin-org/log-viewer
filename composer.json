@@ -13,7 +13,7 @@
     ],
     "require": {
         "php": ">=7.0.0",
-        "super-admin-org/super-admin": ">=1.0.12"
+        "super-admin-org/super-admin": "dev-main"
     },
     "require-dev": {
         "phpunit/phpunit": "~6.0"
