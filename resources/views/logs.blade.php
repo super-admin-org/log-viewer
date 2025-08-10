@@ -5,13 +5,42 @@
                 <button type="button" class="btn btn-primary btn-sm log-refresh"><i class="icon-refresh"></i> {{ trans('admin.refresh') }}</button>
                 <button type="button" class="btn btn-light btn-sm log-live"><i id="live-indicator" class="icon-play"></i> </button>
                 <div class="float-end">
+                    <form method="GET" action="{{ $current ? route('log-viewer-file', ['file' => $current]) : route('log-viewer-index') }}" class="d-inline-block me-2">
+                        <div class="input-group input-group-sm">
+                            <input name="q" value="{{ $q ?? '' }}" type="text" class="form-control" placeholder="Search logs...">
+                            <button class="btn btn-primary btn-sm" type="submit">
+                                <i class="icon-search"></i>
+                            </button>
+                        </div>
+                    </form>
+
+                    @if(!empty($downloadPath))
+                        <a class="btn btn-light btn-sm" href="{{ $downloadPath }}" download target="_blank">
+                            <i class="icon-download"></i> Download
+                        </a>
+
+                        <form method="POST"
+                              action="{{ route('log-viewer-destroy', ['file' => $current]) }}"
+                              class="d-inline-block"
+                              onsubmit="return confirm('Delete this log file permanently?');">
+                            @csrf
+                            @method('DELETE')
+                            <button class="btn btn-danger btn-sm" type="submit">
+                                <i class="icon-trash"></i> Delete
+                            </button>
+                        </form>
+                    @endif
+
                     <div class="btn-group">
                         @if ($prevUrl)
-                        <a href="{{ $prevUrl }}" class="btn btn-light btn-sm"><i class="icon-chevron-left"></i></a>
+                            <a href="{{ $prevUrl }}{{ request('q') ? (Str::contains($prevUrl,'?') ? '&' : '?') . 'q=' . urlencode(request('q')) : '' }}"
+                               class="btn btn-light btn-sm"><i class="icon-chevron-left"></i></a>
                         @endif
                         @if ($nextUrl)
-                        <a href="{{ $nextUrl }}" class="btn btn-light btn-sm"><i class="icon-chevron-right"></i></a>
+                            <a href="{{ $nextUrl }}{{ request('q') ? (Str::contains($nextUrl,'?') ? '&' : '?') . 'q=' . urlencode(request('q')) : '' }}"
+                               class="btn btn-light btn-sm"><i class="icon-chevron-right"></i></a>
                         @endif
+
                     </div>
                 </div>
             </div>
@@ -20,13 +49,13 @@
                 <div class="table-responsive">
                     <table class="table table-hover">
                         <thead>
-                            <tr>
-                                <th>Level</th>
-                                <th>Env</th>
-                                <th>Time</th>
-                                <th>Message</th>
-                                <th></th>
-                            </tr>
+                        <tr>
+                            <th>Level</th>
+                            <th>Env</th>
+                            <th>Time</th>
+                            <th>Message</th>
+                            <th></th>
+                        </tr>
                         </thead>
                         <tbody>
 
@@ -38,14 +67,14 @@
                                 <td><code style="word-break: break-all;">{{ $log['info'] }}</code></td>
                                 <td>
                                     @if(!empty($log['trace']))
-                                    <a class="btn btn-primary btn-xs" style="position:absolute;right:20px;" data-bs-toggle="collapse" data-bs-target="#trace-{{$index}}"><i class="icon-info"></i>&nbsp;Exception&nbsp;</a>
+                                        <a class="btn btn-primary btn-xs" style="position:absolute;right:20px;" data-bs-toggle="collapse" data-bs-target="#trace-{{$index}}"><i class="icon-info"></i>&nbsp;Exception&nbsp;</a>
                                     @endif
                                 </td>
                             </tr>
                             @if (!empty($log['trace']))
-                            <tr>
-                                <td colspan="5" class="p-0 border-0"><div class="collapse" id="trace-{{$index}}" style="white-space: pre-wrap;background: #333;color: #fff; padding: 10px;">{{ $log['trace'] }}</div></td>
-                            </tr>
+                                <tr>
+                                    <td colspan="5" class="p-0 border-0"><div class="collapse" id="trace-{{$index}}" style="white-space: pre-wrap;background: #333;color: #fff; padding: 10px;">{{ $log['trace'] }}</div></td>
+                                </tr>
                             @endif
                         @endforeach
 
