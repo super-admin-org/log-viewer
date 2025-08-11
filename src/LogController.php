@@ -31,15 +31,15 @@ class LogController extends Controller
             $logs = $viewer->fetch($offset);
 
             // Optional: keyword search across common fields
-            $q = trim((string) $request->get('q', ''));
+            $q = trim((string)$request->get('q', ''));
             if ($q !== '') {
                 $needle = mb_strtolower($q);
                 $logs = array_values(array_filter($logs, function ($row) use ($needle) {
                     $hay = mb_strtolower(
                         ($row['level'] ?? '') . ' ' .
-                        ($row['env'] ?? '')   . ' ' .
-                        ($row['time'] ?? '')  . ' ' .
-                        ($row['info'] ?? '')  . ' ' .
+                        ($row['env'] ?? '') . ' ' .
+                        ($row['time'] ?? '') . ' ' .
+                        ($row['info'] ?? '') . ' ' .
                         ($row['trace'] ?? '')
                     );
                     return mb_strpos($hay, $needle) !== false;
@@ -47,28 +47,28 @@ class LogController extends Controller
             }
 
             $content->body(view('super-admin-logs::logs', [
-                'logs'                           => $logs,
+                'logs' => $logs,
                 // both keys, in case Blade uses either
-                'logFiles'                       => $viewer->getLogFiles(),
-                'files'                          => $viewer->getLogFiles(),
+                'logFiles' => $viewer->getLogFiles(),
+                'files' => $viewer->getLogFiles(),
                 // 👇 add this to satisfy $current in Blade
-                'current'                        => $viewer->file,
+                'current' => $viewer->file,
                 'downloadPath' => route('log-viewer-download', ['file' => $viewer->set_bypass($viewer->file)]),
 
-                'fileName'                       => $viewer->file,
-                'end'                            => $viewer->getFilesize(),
-                'tailPath'                       => route('log-viewer-tail', ['file' => $viewer->file]),
-                'prevUrl'                        => $viewer->getPrevPageUrl(),
-                'nextUrl'                        => $viewer->getNextPageUrl(),
-                'filePath'                       => $viewer->getFilePath(),
-                'size'                           => static::bytesToHuman($viewer->getFilesize()),
+                'fileName' => $viewer->file,
+                'end' => $viewer->getFilesize(),
+                'tailPath' => route('log-viewer-tail', ['file' => $viewer->file]),
+                'prevUrl' => $viewer->getPrevPageUrl(),
+                'nextUrl' => $viewer->getNextPageUrl(),
+                'filePath' => $viewer->getFilePath(),
+                'size' => static::bytesToHuman($viewer->getFilesize()),
                 // optional numeric alias if Blade ever uses it
-                'filesize'                       => $viewer->getFilesize(),
+                'filesize' => $viewer->getFilesize(),
 
-                'bypass_protected_urls_find'     => $viewer->bypass_protected_urls_find,
-                'bypass_protected_urls_replace'  => $viewer->bypass_protected_urls_replace,
+                'bypass_protected_urls_find' => $viewer->bypass_protected_urls_find,
+                'bypass_protected_urls_replace' => $viewer->bypass_protected_urls_replace,
                 // keep search term (if you added a search box)
-                'q'                              => $q ?? '',
+                'q' => $q ?? '',
             ]));
 
             $content->header($viewer->getFilePath());
@@ -89,7 +89,7 @@ class LogController extends Controller
     public function download($file)
     {
         $viewer = new LogViewer($file);
-        $path   = $viewer->getFilePath();
+        $path = $viewer->getFilePath();
 
         if (!is_file($path)) {
             abort(404, 'Log file not found');
@@ -103,13 +103,12 @@ class LogController extends Controller
             }
             fclose($fp);
         }, basename($path), [
-            'Content-Type'            => 'application/octet-stream',
-            'Content-Length'          => (string) filesize($path),
-            'Content-Disposition'     => 'attachment; filename="'.basename($path).'"',
-            'X-Content-Type-Options'  => 'nosniff',
+            'Content-Type' => 'application/octet-stream',
+            'Content-Length' => (string)filesize($path),
+            'Content-Disposition' => 'attachment; filename="' . basename($path) . '"',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
-
 
 
     // NEW: Delete current log file (with CSRF + method spoof from Blade)
