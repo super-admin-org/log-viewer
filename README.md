@@ -8,7 +8,7 @@ Log viewer for super-admin
 
 ## Screenshot
 
-![image](https://user-images.githubusercontent.com/86517067/167827896-7a426d57-ee14-48a3-83e2-eae434d090e0.png)
+![image](https://github.com/user-attachments/assets/183c5be9-c78c-4b93-9c42-499c552178c4)
 
 
 ## Installation
