@@ -39,3 +39,4 @@ See `config/admin.php` and add in the `extensions` section
 License
 ------------
 Licensed under [The MIT License (MIT)](LICENSE).
+Special thanks to z-song for original development
