@@ -117,7 +117,8 @@ class LogViewer extends Extension
         $analyzer = new LogAnalyzer(
             $this->filePath,
             static::option('analyzer_max_bytes', LogAnalyzer::DEFAULT_MAX_BYTES),
-            static::option('analyzer_max_issues', 8)
+            static::option('analyzer_max_issues', 8),
+            static::option('analyzer_max_activity', 6)
         );
 
         return $analyzer->analyze();

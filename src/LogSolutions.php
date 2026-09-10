@@ -134,7 +134,7 @@ class LogSolutions
             // Database
             // ---------------------------------------------------------------
             [
-                'match' => '/SQLSTATE\[42S02\]|Base table or view not found/i',
+                'match' => '/SQLSTATE\[42S02\]|SQLSTATE\[42P01\]|Base table or view not found|relation ".*?" does not exist/i',
                 'title' => 'Database table is missing',
                 'cause' => 'The query refers to a table that does not exist in the connected database - normally pending migrations, or the app pointing at the wrong database.',
                 'steps' => [
@@ -145,7 +145,7 @@ class LogSolutions
                 'commands' => ['php artisan migrate --force', 'php artisan migrate:status'],
             ],
             [
-                'match' => '/SQLSTATE\[42S22\]|Unknown column/i',
+                'match' => '/SQLSTATE\[42S22\]|SQLSTATE\[42703\]|Unknown column|column ".*?" does not exist/i',
                 'title' => 'Unknown column in query',
                 'cause' => 'The column was renamed, dropped, or a migration adding it has not run on this environment.',
                 'steps' => [
@@ -156,18 +156,18 @@ class LogSolutions
                 'commands' => ['php artisan migrate --force'],
             ],
             [
-                'match' => '/SQLSTATE\[HY000\] \[1045\]|Access denied for user/i',
+                'match' => '/SQLSTATE\[HY000\] \[1045\]|SQLSTATE\[28P01\]|Access denied for user|password authentication failed for user/i',
                 'title' => 'Database credentials rejected',
                 'cause' => 'The DB user/password/host combination is wrong, or the user has no grant from this host.',
                 'steps' => [
                     'Verify DB_USERNAME / DB_PASSWORD / DB_HOST in .env.',
                     'Config caching freezes .env values - rebuild the cache after any change.',
-                    'Confirm the MySQL user is granted access from the application server host, not just localhost.',
+                    'Confirm the database user is granted access from the application server host, not just localhost.',
                 ],
                 'commands' => ['php artisan config:clear', 'php artisan config:cache'],
             ],
             [
-                'match' => '/SQLSTATE\[HY000\] \[1049\]|Unknown database/i',
+                'match' => '/SQLSTATE\[HY000\] \[1049\]|SQLSTATE\[3D000\]|Unknown database|database ".*?" does not exist/i',
                 'title' => 'Database does not exist',
                 'cause' => 'The database named in DB_DATABASE has not been created on this server.',
                 'steps' => [
@@ -177,13 +177,24 @@ class LogSolutions
                 'commands' => ['php artisan config:clear', 'php artisan migrate --force'],
             ],
             [
-                'match' => '/SQLSTATE\[HY000\] \[200[26]\]|Connection refused.*(?:3306|mysql)|MySQL server has gone away/i',
+                'match' => '/SQLSTATE\[HY000\] \[200[26]\]|Connection refused(?!\s*\[tcp)|MySQL server has gone away|could not connect to server/i',
                 'title' => 'Database server unreachable',
                 'cause' => 'The database process is down, listening elsewhere, or blocked by a firewall / wrong socket path.',
                 'steps' => [
                     'Check the database service is running and accepting connections on DB_HOST:DB_PORT.',
                     'Inside Docker, DB_HOST must be the service name, not 127.0.0.1.',
-                    '"MySQL server has gone away" instead points at wait_timeout or max_allowed_packet - shorten long-running connections or raise those limits.',
+                    '"MySQL server has gone away" points at wait_timeout or max_allowed_packet instead - shorten long-running connections or raise those limits.',
+                ],
+                'commands' => [],
+            ],
+            [
+                'match' => '/SQLSTATE\[22P02\]|invalid input syntax for type/i',
+                'title' => 'Value does not match the column type',
+                'cause' => 'A string that is not a valid integer/uuid/date for the target column was sent straight to the database - usually a route or request parameter that was never validated before being used in a query.',
+                'steps' => [
+                    'Validate the parameter\'s shape before querying (uuid: rule for UUID columns, integer for numeric ids).',
+                    'For route-model binding, constrain the route parameter\'s pattern so a malformed id 404s instead of reaching the query.',
+                    'Check whether the value truly comes from user input or from a bad cast/default further up the call chain.',
                 ],
                 'commands' => [],
             ],
@@ -198,7 +209,7 @@ class LogSolutions
                 'commands' => ['php -m | grep pdo'],
             ],
             [
-                'match' => '/Integrity constraint violation: 1062|Duplicate entry/i',
+                'match' => '/Integrity constraint violation: 1062|SQLSTATE\[23505\]|Duplicate entry|Unique violation|duplicate key value violates unique constraint/i',
                 'title' => 'Duplicate entry on a unique index',
                 'cause' => 'A row was inserted with a value that already exists on a unique column - almost always a missing validation rule or a double-submitted form.',
                 'steps' => [
@@ -209,7 +220,7 @@ class LogSolutions
                 'commands' => [],
             ],
             [
-                'match' => '/Integrity constraint violation: 145[123]|foreign key constraint fails/i',
+                'match' => '/Integrity constraint violation: 145[123]|SQLSTATE\[23503\]|foreign key constraint fails|violates foreign key constraint/i',
                 'title' => 'Foreign key constraint violation',
                 'cause' => 'A row references a parent that does not exist, or a parent was deleted while children still point at it.',
                 'steps' => [
@@ -220,7 +231,7 @@ class LogSolutions
                 'commands' => [],
             ],
             [
-                'match' => '/Integrity constraint violation: 1048|Column .* cannot be null/i',
+                'match' => '/Integrity constraint violation: 1048|SQLSTATE\[23502\]|Column .* cannot be null|violates not-null constraint/i',
                 'title' => 'NOT NULL column received null',
                 'cause' => 'A required field was absent from the request or was stripped by mass-assignment rules before the insert.',
                 'steps' => [
@@ -252,6 +263,55 @@ class LogSolutions
                 ],
                 'commands' => [],
             ],
+            [
+                'match' => '/database file at path \[.*?\] does not exist/i',
+                'title' => 'SQLite database file missing',
+                'cause' => 'DB_CONNECTION is set to sqlite but the .sqlite file it points at was never created - common when a fresh checkout keeps Laravel\'s default sqlite driver instead of switching to the real production database.',
+                'steps' => [
+                    'Confirm DB_CONNECTION in .env is really the database you intend for this environment (mysql/pgsql), not the sqlite scaffold default.',
+                    'If sqlite really is intended here, create the file and migrate it.',
+                    'Rebuild the config cache after changing .env - it freezes whatever DB_CONNECTION was at cache time.',
+                ],
+                'commands' => ['touch database/database.sqlite', 'php artisan migrate --force', 'php artisan config:clear'],
+            ],
+            [
+                'match' => '/database system is in recovery mode|database system is (?:shutting down|starting up)|database system is not yet accepting connections/i',
+                'title' => 'PostgreSQL is mid-restart (starting up, shutting down, or recovering)',
+                'cause' => 'Postgres briefly refuses new queries while it restarts, replays its WAL after a crash, or is a hot-standby replica that has not been promoted - "recovery mode"/"starting up"/"shutting down" are all the same class of transient connection-exception (SQLSTATE class 08).',
+                'steps' => [
+                    'Check the Postgres server log around this timestamp for a restart, crash, deploy, or failover.',
+                    'If this coincides with a deploy that restarts Postgres, the app just needs to retry rather than fail outright.',
+                    'If this host is a replica, confirm the app is meant to write to it at all, or point it at the primary instead.',
+                    'A short retry/backoff around the connection covers the rare case this happens mid-deploy or mid-failover.',
+                ],
+                'commands' => [],
+            ],
+
+            // ---------------------------------------------------------------
+            // Bootstrap & configuration
+            // ---------------------------------------------------------------
+            [
+                'match' => '/Unable to create configured logger|Log \[.*?\] is not defined/i',
+                'title' => 'Log channel misconfigured',
+                'cause' => 'LOG_CHANNEL (or config/logging.php\'s default) names a channel that is not defined under "channels", so Laravel falls back to its emergency logger - and every other log call is affected until this is fixed, not just this one.',
+                'steps' => [
+                    'Check LOG_CHANNEL in .env - it must match a key under channels in config/logging.php (typically stack, single or daily).',
+                    'An empty or unset LOG_CHANNEL produces exactly this error ("Log [] is not defined") - set it explicitly.',
+                    'Rebuild the config cache after changing .env.',
+                ],
+                'commands' => ['php artisan config:clear', 'php artisan config:cache'],
+            ],
+            [
+                'match' => '/["\'][^"\']*config["\']? directory does not exist|RecursiveDirectoryIterator::__construct\([^)]*config/i',
+                'title' => 'Application config directory missing',
+                'cause' => 'Laravel\'s bootstrap cannot find the config/ directory at all - almost always an incomplete deploy (a partial rsync/checkout, or a broken "current" symlink in an atomic-deploy setup) rather than a code bug.',
+                'steps' => [
+                    'Confirm config/ actually exists at the path named in the error, on the server that produced this log.',
+                    'If deploys use a symlinked release directory (Envoyer/Deployer-style), check the symlink points at a complete release.',
+                    'Compare deployed files against git - a deploy-script exclude rule may be stripping config/ by mistake.',
+                ],
+                'commands' => [],
+            ],
 
             // ---------------------------------------------------------------
             // Wiring / resolution
@@ -266,6 +326,27 @@ class LogSolutions
                     'If it belongs to a package, confirm it is in composer.json and vendor/ was deployed.',
                 ],
                 'commands' => ['composer dump-autoload -o', 'php artisan clear-compiled'],
+            ],
+            [
+                'match' => '/Cannot redeclare (?:function )?\w+\(\)/i',
+                'title' => 'Duplicate function declaration',
+                'cause' => 'A global function is defined in two files that both get loaded in the same run - almost always a copy-pasted helper (very common across test files) that should live in one shared place instead.',
+                'steps' => [
+                    'Find every file defining this function name and keep only one copy.',
+                    'For test helpers, move it to a shared TestCase base class or a trait instead of a bare global function per test file.',
+                    'If it must stay a global function, guard the declaration with function_exists().',
+                ],
+                'commands' => [],
+            ],
+            [
+                'match' => '/Psy\\\\+Exception\\\\+ParseErrorException/i',
+                'title' => 'Typo in an interactive tinker session',
+                'cause' => 'This came from php artisan tinker (the Psy Shell REPL) - a parse error in whatever was typed at the prompt, not a bug in the application code.',
+                'steps' => [
+                    'Not an application bug - retype the tinker command with valid PHP syntax.',
+                    'If this keeps appearing from an automated source, something is piping malformed PHP into tinker rather than a person mistyping it.',
+                ],
+                'commands' => [],
             ],
             [
                 'match' => '/Target class \[.*\] does not exist|Unable to resolve dependency|BindingResolutionException/i',
@@ -298,6 +379,17 @@ class LogSolutions
                     'Rebuild the route cache after every deploy that touches routes.',
                 ],
                 'commands' => ['php artisan route:list', 'php artisan route:clear', 'php artisan route:cache'],
+            ],
+            [
+                'match' => '/UrlGenerationException|Missing required parameter for \[Route:/i',
+                'title' => 'route() called without a required parameter',
+                'cause' => 'The route\'s URI has a {parameter} that was not supplied when generating the URL - usually a route() call, <a> href, or a route-model-bound relation that was null when the link was built.',
+                'steps' => [
+                    'Check the failing route\'s signature (shown above as [Route: ...] [URI: ...]) for the missing {parameter} name.',
+                    'Make sure the value passed to route() is not null - a not-yet-saved model or a missing relation is the usual cause.',
+                    'If the parameter is genuinely optional, mark it optional in the route definition ({param?}) and give it a default.',
+                ],
+                'commands' => [],
             ],
             [
                 'match' => '/NotFoundHttpException/i',
@@ -374,6 +466,17 @@ class LogSolutions
                 ],
                 'commands' => [],
             ],
+            [
+                'match' => '/\b\w+ field is required\b|\bis required when creating\b|\bis required to (?:create|continue|proceed)\b/i',
+                'title' => 'Manual validation is throwing a raw exception',
+                'cause' => 'A required-field check is throwing a plain Exception/Error directly instead of using Laravel\'s validator, so the user gets a 500 page and a stack trace instead of a 422 with the old input and an inline error message.',
+                'steps' => [
+                    'Replace the manual check with $request->validate([...]) or a Form Request class.',
+                    'If it must stay a manual check, throw Illuminate\\Validation\\ValidationException::withMessages([...]) instead so it renders as a normal validation error.',
+                    'Confirm the field is actually present in the request payload under the expected name - a renamed form input often causes exactly this.',
+                ],
+                'commands' => [],
+            ],
 
             // ---------------------------------------------------------------
             // Runtime limits and filesystem
@@ -386,6 +489,17 @@ class LogSolutions
                     'Replace get()/all() with chunk(), chunkById() or lazy() on large tables.',
                     'Stream file downloads instead of reading them into a string.',
                     'Raising memory_limit is a stopgap, not a fix - it only moves the failure point.',
+                ],
+                'commands' => [],
+            ],
+            [
+                'match' => '/^Out of memory \(allocated \d+ bytes\)/im',
+                'title' => 'PHP CLI ran out of memory',
+                'cause' => 'This is PHP\'s own fatal, not Laravel\'s - it typically shows up running an artisan command whose CLI php.ini still has a low memory_limit (32M is PHP\'s historic default) before Laravel\'s own bootstrapping has a chance to raise it.',
+                'steps' => [
+                    'Check the memory_limit the CLI actually uses - it is often lower than php-fpm\'s (php --ini shows which file is loaded).',
+                    'Raise it for CLI use, or run just that command with a higher limit for one invocation.',
+                    'If it happens inside a specific artisan command every time, that command is likely processing something in memory rather than in batches - see "PHP memory exhausted" above for the same fix.',
                 ],
                 'commands' => [],
             ],
@@ -506,7 +620,7 @@ class LogSolutions
                 'commands' => ['redis-cli ping'],
             ],
             [
-                'match' => '/Swift_TransportException|Mailer\\\\Exception|Failed to authenticate on SMTP|Connection could not be established with host/i',
+                'match' => '/Swift_TransportException|Mailer\\\\+Exception|Failed to authenticate on SMTP|Connection could not be established with host/i',
                 'title' => 'Email delivery failed',
                 'cause' => 'SMTP credentials, host, port or encryption settings are wrong, or the provider rejected the connection.',
                 'steps' => [
@@ -528,6 +642,17 @@ class LogSolutions
                 'commands' => ['php artisan queue:failed', 'php artisan queue:retry all'],
             ],
             [
+                'match' => '/Unable to locate file in Vite manifest/i',
+                'title' => 'Asset missing from the Vite manifest',
+                'cause' => 'The manifest itself exists, but this specific entry point is not in it - the file referenced by @vite(...) in the Blade view was renamed, moved, or deleted on the frontend, or it was added after the last production build.',
+                'steps' => [
+                    'Check the path named in the error still exists under resources/ and matches exactly what the Blade view passes to @vite().',
+                    'Rebuild frontend assets - a build taken before this file existed (or after it moved) leaves the manifest stale.',
+                    'If the file was intentionally removed, remove the matching @vite() reference from the view too.',
+                ],
+                'commands' => ['npm run build'],
+            ],
+            [
                 'match' => '/Vite manifest not found|Unable to locate Mix file|mix-manifest/i',
                 'title' => 'Frontend asset manifest missing',
                 'cause' => 'The production asset build never ran, or the build output was not deployed.',
@@ -546,6 +671,28 @@ class LogSolutions
                     'Check whether it is one abusive client or your own retry loop hammering an endpoint.',
                     'Tune the throttle middleware limits for the route.',
                     'For outbound calls, honour Retry-After and back off exponentially.',
+                ],
+                'commands' => [],
+            ],
+            [
+                'match' => '/Token generation failed|Failed to generate token|Token not found in response/i',
+                'title' => 'Payment gateway authentication failed',
+                'cause' => 'The integration could not get an auth token from the payment gateway (bKash/Nagad/SSLCommerz/...) before making the actual API call - almost always expired or mismatched sandbox-vs-live credentials, or the gateway itself being down.',
+                'steps' => [
+                    'Confirm the app key/secret and username/password match the environment actually being called (sandbox credentials against the live URL, or vice versa, fails exactly like this).',
+                    'Check the gateway\'s status page - a token endpoint outage on their side looks identical from here.',
+                    'If this only fails intermittently, check the server clock - several gateways sign requests with a timestamp and reject them when it drifts.',
+                ],
+                'commands' => [],
+            ],
+            [
+                'match' => '/\[(?:bKash|Nagad|SSLCommerz|PayStation|Rocket|Upay|Stripe|PayPal)\]\s*.*?(?:[Ff]ailed|[Ee]rror)/',
+                'title' => 'Payment gateway call failed',
+                'cause' => 'A local payment gateway integration reported a failure. This summary line rarely carries the real reason - the gateway\'s actual response is usually in a DEBUG-level line logged immediately before or after it.',
+                'steps' => [
+                    'Open the log around this timestamp and read the DEBUG "request"/"response" entries for the same invoice/transaction id - the gateway\'s own error code and message are there.',
+                    'Check whether this correlates with a token/authentication failure just before it.',
+                    'Confirm sandbox vs live credentials and callback URLs are not mixed for this environment.',
                 ],
                 'commands' => [],
             ],

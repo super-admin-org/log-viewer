@@ -4,8 +4,9 @@ namespace SuperAdmin\Admin\LogViewer;
 
 /**
  * Scans a log file and produces a health summary: how many entries at each
- * level, and the distinct problems behind them - deduplicated, counted and
- * paired with a suggested fix from {@see LogSolutions}.
+ * level, the distinct problems behind them - deduplicated, counted and paired
+ * with a suggested fix from {@see LogSolutions} - and, separately, the most
+ * frequent INFO/DEBUG messages for a picture of normal traffic.
  *
  * Unlike the paged reader in {@see LogViewer}, this looks at the whole file
  * (capped to a tail window) so that counts mean something.
@@ -19,9 +20,29 @@ class LogAnalyzer
     const DEFAULT_MAX_BYTES = 2097152; // 2 MB
 
     /**
-     * How much of the first occurrence's stack trace is kept for matching.
+     * How much of a raw continuation block (real multi-line traces, not the
+     * usual JSON-escaped single line) is kept per open entry.
      */
-    const TRACE_SAMPLE = 4000;
+    const TRACE_SAMPLE = 20000;
+
+    /**
+     * Distinct messages are grouped by a normalised fingerprint. This caps how
+     * many distinct groups are tracked per file, so a log that is mostly
+     * unique noise (e.g. every DEBUG line carries a different payload) cannot
+     * grow memory use unbounded.
+     */
+    const MAX_TRACKED_GROUPS = 4000;
+
+    /**
+     * Request input keys that are never shown, even redacted-in-place.
+     *
+     * @var array
+     */
+    public static $sensitiveKeys = [
+        'password', 'password_confirmation', 'token', '_token', 'secret',
+        'api_key', 'apikey', 'authorization', 'card_number', 'cvv', 'ssn',
+        'remember_token',
+    ];
 
     /**
      * Levels worth grouping and suggesting fixes for.
@@ -67,15 +88,22 @@ class LogAnalyzer
     protected $maxIssues;
 
     /**
+     * @var int
+     */
+    protected $maxActivity;
+
+    /**
      * @param string   $path
      * @param int|null $maxBytes
      * @param int      $maxIssues
+     * @param int      $maxActivity
      */
-    public function __construct($path, $maxBytes = null, $maxIssues = 8)
+    public function __construct($path, $maxBytes = null, $maxIssues = 8, $maxActivity = 6)
     {
-        $this->path      = $path;
-        $this->maxBytes  = $maxBytes ? (int) $maxBytes : self::DEFAULT_MAX_BYTES;
-        $this->maxIssues = (int) $maxIssues;
+        $this->path        = $path;
+        $this->maxBytes    = $maxBytes ? (int) $maxBytes : self::DEFAULT_MAX_BYTES;
+        $this->maxIssues   = (int) $maxIssues;
+        $this->maxActivity = (int) $maxActivity;
     }
 
     /**
@@ -86,16 +114,18 @@ class LogAnalyzer
     public function analyze()
     {
         $summary = [
-            'levels'     => [],
-            'total'      => 0,
-            'alerts'     => 0,
-            'issues'     => [],
-            'issueCount' => 0,
-            'scanned'    => 0,
-            'size'       => 0,
-            'truncated'  => false,
-            'firstSeen'  => null,
-            'lastSeen'   => null,
+            'levels'        => [],
+            'total'         => 0,
+            'alerts'        => 0,
+            'issues'        => [],
+            'issueCount'    => 0,
+            'activity'      => [],
+            'activityCount' => 0,
+            'scanned'       => 0,
+            'size'          => 0,
+            'truncated'     => false,
+            'firstSeen'     => null,
+            'lastSeen'      => null,
         ];
 
         if (!is_file($this->path) || !is_readable($this->path)) {
@@ -150,7 +180,8 @@ class LogAnalyzer
                 continue;
             }
 
-            // Continuation line - part of the stack trace of the open entry.
+            // Continuation line - part of a genuinely multi-line entry (rare;
+            // Laravel normally JSON-escapes the whole exception onto one line).
             if ($current !== null && strlen($current['trace']) < self::TRACE_SAMPLE) {
                 $current['trace'] .= $line;
             }
@@ -162,14 +193,27 @@ class LogAnalyzer
 
         fclose($handle);
 
-        $summary['issueCount'] = count($groups);
-        $summary['issues']     = $this->rank($groups);
+        $alertGroups    = [];
+        $activityGroups = [];
+
+        foreach ($groups as $key => $group) {
+            if (in_array($group['level'], self::$alertLevels, true)) {
+                $alertGroups[$key] = $group;
+            } else {
+                $activityGroups[$key] = $group;
+            }
+        }
+
+        $summary['issueCount']    = count($alertGroups);
+        $summary['issues']        = $this->rankIssues($alertGroups);
+        $summary['activityCount'] = count($activityGroups);
+        $summary['activity']      = $this->rankActivity($activityGroups);
 
         return $summary;
     }
 
     /**
-     * Fold one parsed entry into the running totals and issue groups.
+     * Fold one parsed entry into the running totals and message groups.
      *
      * @param array $entry
      * @param array $summary
@@ -192,14 +236,23 @@ class LogAnalyzer
             $summary['lastSeen'] = $entry['time'];
         }
 
-        if (!in_array($level, self::$alertLevels, true)) {
-            return;
+        if (in_array($level, self::$alertLevels, true)) {
+            $summary['alerts']++;
         }
 
-        $summary['alerts']++;
+        // Laravel appends structured context as trailing JSON on the same
+        // physical line (json_encode escapes both backslashes and newlines),
+        // so decode it once to get the exception text back in its original,
+        // readable form rather than regexing the doubled-backslash raw bytes.
+        $context       = $this->decodeContext($entry['message']);
+        $exceptionText = (is_array($context) && isset($context['exception']) && is_string($context['exception']))
+            ? $context['exception']
+            : '';
 
-        $message = $this->stripContext($entry['message']);
-        $key     = $level.'|'.$this->fingerprint($message);
+        $displayMessage = $this->cleanCustomMessage($this->stripContext($entry['message']));
+        $traceText      = $exceptionText !== '' ? $exceptionText : ($entry['message']."\n".$entry['trace']);
+
+        $key = $level.'|'.$this->fingerprint($displayMessage);
 
         if (isset($groups[$key])) {
             $groups[$key]['count']++;
@@ -208,27 +261,36 @@ class LogAnalyzer
             return;
         }
 
+        // A log dominated by unique messages (every DEBUG line carrying a
+        // different payload) would otherwise grow one group per line forever.
+        if (count($groups) >= self::MAX_TRACKED_GROUPS) {
+            return;
+        }
+
         $groups[$key] = [
             'level'     => $level,
             'count'     => 1,
             'first'     => $entry['time'],
             'last'      => $entry['time'],
-            'message'   => $message,
-            'exception' => $this->exceptionClass($entry['message'].' '.$entry['trace']),
-            'location'  => $this->location($entry['message'].' '.$entry['trace']),
-            'haystack'  => substr($entry['message'].' '.$entry['trace'], 0, self::TRACE_SAMPLE),
+            'message'   => $displayMessage,
+            'exception' => $this->exceptionClass($traceText),
+            'location'  => $this->location($traceText),
+            'route'     => $this->routeInfo($displayMessage),
+            'sql'       => $this->sqlQuery($displayMessage),
+            'request'   => $this->requestInfo($context),
+            'haystack'  => substr($displayMessage.' '.$traceText, 0, 8000),
         ];
     }
 
     /**
-     * Sort the groups by severity then frequency, keep the top N, and attach a
+     * Sort issues by severity then frequency, keep the top N, and attach a
      * suggested fix to each.
      *
      * @param array $groups
      *
      * @return array
      */
-    protected function rank(array $groups)
+    protected function rankIssues(array $groups)
     {
         $issues = array_values($groups);
 
@@ -259,6 +321,35 @@ class LogAnalyzer
     }
 
     /**
+     * Rank INFO/DEBUG/NOTICE groups by frequency alone - no fix is suggested
+     * for normal application activity, this is purely "what's noisy".
+     *
+     * @param array $groups
+     *
+     * @return array
+     */
+    protected function rankActivity(array $groups)
+    {
+        $items = array_values($groups);
+
+        usort($items, function ($a, $b) {
+            if ($a['count'] !== $b['count']) {
+                return $b['count'] - $a['count'];
+            }
+
+            return strcmp($b['last'], $a['last']);
+        });
+
+        $items = array_slice($items, 0, $this->maxActivity);
+
+        foreach ($items as $index => $item) {
+            unset($items[$index]['haystack'], $items[$index]['solution']);
+        }
+
+        return $items;
+    }
+
+    /**
      * Laravel writes either "2026-09-08 10:00:00" or an ISO timestamp with
      * microseconds and an offset. Flatten both so string comparison orders
      * them correctly and the summary reads consistently.
@@ -273,6 +364,27 @@ class LogAnalyzer
     }
 
     /**
+     * Find where the trailing JSON context block starts, if there is one.
+     * Monolog always appends it as the last thing on the line, so anchor on
+     * the last occurrence rather than the first - a message that legitimately
+     * contains an earlier ' {"' substring must not cut the display text short.
+     *
+     * @param string $message
+     *
+     * @return int|false
+     */
+    protected function contextBoundary($message)
+    {
+        $pos = strrpos($message, ' {"exception":');
+
+        if ($pos !== false) {
+            return $pos;
+        }
+
+        return strrpos($message, ' {"');
+    }
+
+    /**
      * Drop the JSON exception context Laravel appends to the message line.
      *
      * @param string $message
@@ -281,13 +393,52 @@ class LogAnalyzer
      */
     protected function stripContext($message)
     {
-        $position = strpos($message, ' {"exception":');
+        $pos = $this->contextBoundary($message);
 
-        if ($position !== false) {
-            $message = substr($message, 0, $position);
+        if ($pos !== false) {
+            $message = substr($message, 0, $pos);
         }
 
         return trim(preg_replace('/\s+/', ' ', $message));
+    }
+
+    /**
+     * Decode the trailing JSON context block, if there is one and it parses.
+     *
+     * @param string $message
+     *
+     * @return array|null
+     */
+    protected function decodeContext($message)
+    {
+        $pos = $this->contextBoundary($message);
+
+        if ($pos === false) {
+            return null;
+        }
+
+        $decoded = json_decode(substr($message, $pos + 1), true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Some apps log exceptions through a custom wrapper instead of Laravel's
+     * own formatter, e.g. "Exception caught in file: X at line: Y - Message:
+     * Z - Code: C - Trace: ...". Unwrap it so the real message is what gets
+     * displayed, grouped and fingerprinted - not the whole wrapper text.
+     *
+     * @param string $message
+     *
+     * @return string
+     */
+    protected function cleanCustomMessage($message)
+    {
+        if (preg_match('/^Exception caught in file:.*?-\s*Message:\s*(.+?)\s*-\s*Code:\s*\S+/is', $message, $m)) {
+            return trim($m[1]);
+        }
+
+        return $message;
     }
 
     /**
@@ -341,8 +492,122 @@ class LogAnalyzer
     }
 
     /**
-     * Pull the first "file.php:123" reference out of a message or its trace,
-     * preferring a frame inside the application over one in vendor/.
+     * Pull Laravel's own "[Route: x] [URI: y]" annotation out of a message,
+     * when the exception (route-model binding, URL generation, ...) includes
+     * one. This is the closest thing to "which URL" for exception types that
+     * embed it themselves.
+     *
+     * @param string $message
+     *
+     * @return array
+     */
+    protected function routeInfo($message)
+    {
+        $info = [];
+
+        if (preg_match('/\[Route:\s*([^\]]+)\]/i', $message, $m)) {
+            $info['route'] = trim($m[1]);
+        }
+
+        if (preg_match('/\[URI:\s*([^\]]+)\]/i', $message, $m)) {
+            $info['uri'] = trim($m[1]);
+        }
+
+        return $info;
+    }
+
+    /**
+     * Pull the failing query out of a Laravel QueryException message, e.g.
+     * "... (Connection: pgsql, SQL: select * from ... where id = ?)".
+     *
+     * @param string $message
+     *
+     * @return string
+     */
+    protected function sqlQuery($message)
+    {
+        if (preg_match('/\bSQL:\s*(.+?)\)?\s*$/s', $message, $m)) {
+            return rtrim(trim($m[1]), ')');
+        }
+
+        return '';
+    }
+
+    /**
+     * Pull request URL/method/IP/payload out of the log context, when the
+     * application logs them. Laravel does not do this by default - see the
+     * README for the snippet that adds it. Reading it here means the moment
+     * an app adds that context, the summary starts showing it with no further
+     * change needed on this side.
+     *
+     * @param array|null $context
+     *
+     * @return array
+     */
+    protected function requestInfo($context)
+    {
+        if (!is_array($context)) {
+            return [];
+        }
+
+        $info = [];
+
+        foreach (['url', 'full_url', 'fullUrl', 'uri'] as $key) {
+            if (!empty($context[$key]) && is_string($context[$key])) {
+                $info['url'] = $context[$key];
+                break;
+            }
+        }
+
+        if (!empty($context['method']) && is_string($context['method'])) {
+            $info['method'] = strtoupper($context['method']);
+        }
+
+        if (!empty($context['ip']) && is_string($context['ip'])) {
+            $info['ip'] = $context['ip'];
+        }
+
+        foreach (['input', 'payload', 'request', 'post', 'get', 'data'] as $key) {
+            if (isset($context[$key]) && is_array($context[$key]) && $context[$key]) {
+                $info['payload'] = $this->redact($context[$key]);
+                break;
+            }
+        }
+
+        return $info;
+    }
+
+    /**
+     * Mask sensitive values (passwords, tokens, ...) recursively rather than
+     * ever showing them, even if the source app forgot to filter them itself.
+     *
+     * @param array $data
+     *
+     * @return array
+     */
+    protected function redact(array $data)
+    {
+        foreach ($data as $key => $value) {
+            if (is_array($value)) {
+                $data[$key] = $this->redact($value);
+            } elseif (in_array(strtolower((string) $key), self::$sensitiveKeys, true)) {
+                $data[$key] = '••••••';
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Pull the first "file.php:123" / "file.php(123)" reference out of a
+     * message or its trace, preferring a frame inside the application over
+     * one in vendor/. Handles every location format actually seen in the
+     * wild:
+     *
+     *  - PHP's Exception::getTraceAsString(): "#0 /path/File.php(123): ..."
+     *  - PHP fatal errors / warnings: "/path/File.php on line 123"
+     *  - Custom wrappers: "in file: /path/File.php at line: 123"
+     *  - A plain "/path/File.php:123" some loggers use
      *
      * @param string $haystack
      *
@@ -350,21 +615,50 @@ class LogAnalyzer
      */
     protected function location($haystack)
     {
-        $pattern = '#((?:/|[A-Za-z]:\\\\)[^\s:()"\']+\.php)(?::| on line )(\d+)#';
+        $candidates = [];
 
-        if (!preg_match_all($pattern, $haystack, $matches, PREG_SET_ORDER)) {
+        if (preg_match('/\bin\s+file:?\s*([^\s]+\.php)\s+(?:at|on)\s+line:?\s*(\d+)/i', $haystack, $m)) {
+            $candidates[] = [$m[1], $m[2]];
+        }
+
+        $pattern = '#((?:/|[A-Za-z]:\\\\)[^\s:()"\']+\.php)(?:\((\d+)\)|:(\d+)|\s+on\s+line\s+(\d+)|\s+at\s+line:?\s+(\d+))#i';
+
+        if (preg_match_all($pattern, $haystack, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $line = '';
+
+                foreach ([2, 3, 4, 5] as $group) {
+                    if (isset($m[$group]) && $m[$group] !== '') {
+                        $line = $m[$group];
+                        break;
+                    }
+                }
+
+                if ($line !== '') {
+                    $candidates[] = [$m[1], $line];
+                }
+            }
+        }
+
+        if (!$candidates) {
             return '';
         }
 
         $fallback = '';
 
-        foreach ($matches as $match) {
-            $file = str_replace('\\', '/', $match[1]);
-            $line = $match[2];
+        foreach ($candidates as $candidate) {
+            $file = str_replace('\\', '/', $candidate[0]);
+            $line = $candidate[1];
 
             // Frames inside vendor/ are framework plumbing - the caller wants
-            // the first frame that belongs to the application.
+            // the first frame that belongs to the application. Remember the
+            // very first vendor candidate as a fallback (it is usually the
+            // most specific one available, e.g. an explicit "in file:" note).
             if (strpos($file, '/vendor/') !== false) {
+                if ($fallback === '') {
+                    $fallback = basename($file).':'.$line;
+                }
+
                 continue;
             }
 
@@ -375,16 +669,9 @@ class LogAnalyzer
                 return $short[1].':'.$line;
             }
 
-            if ($fallback === '') {
-                $fallback = basename($file).':'.$line;
-            }
+            return basename($file).':'.$line;
         }
 
-        if ($fallback !== '') {
-            return $fallback;
-        }
-
-        // Everything was vendor code - show the topmost frame rather than nothing.
-        return basename(str_replace('\\', '/', $matches[0][1])).':'.$matches[0][2];
+        return $fallback;
     }
 }

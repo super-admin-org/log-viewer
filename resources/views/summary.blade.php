@@ -17,6 +17,18 @@
         $params = array_filter(['level' => $lvl, 'q' => $q]);
         return $params ? $baseUrl . '?' . http_build_query($params) : $baseUrl;
     };
+
+    // Route and SQL come for free out of Laravel's own exception messages, no
+    // app change needed. The URL/method/payload block is the one piece that
+    // genuinely requires the app to add context - only its presence means
+    // that has already been done, so only it should silence the pointer below.
+    $hasRequestContext = false;
+    foreach ($summary['issues'] as $issue) {
+        if (!empty($issue['request'])) {
+            $hasRequestContext = true;
+            break;
+        }
+    }
 @endphp
 
 <div class="row">
@@ -72,6 +84,14 @@
                             distinct {{ \Illuminate\Support\Str::plural('issue', $summary['issueCount']) }}{{ $summary['issueCount'] > count($summary['issues']) ? ', top ' . count($summary['issues']) . ' shown' : '' }}:
                         </div>
 
+                        @unless($hasRequestContext)
+                            <div class="small text-muted mb-2" style="border-left:3px solid #dee2e6;padding-left:8px;">
+                                Want the request URL, method and submitted data attached to errors like
+                                these? See the README for a small addition to your app's exception
+                                handler - once added, this panel picks it up automatically.
+                            </div>
+                        @endunless
+
                         <div class="list-group">
                             @foreach($summary['issues'] as $i => $issue)
                                 @php $fixId = 'log-fix-' . $i; @endphp
@@ -92,6 +112,35 @@
                                                 @endif
                                                 first {{ $issue['first'] }} &middot; last {{ $issue['last'] }}
                                             </div>
+
+                                            @if(!empty($issue['route']) || !empty($issue['request']))
+                                                <div class="small text-muted mt-1">
+                                                    @if(!empty($issue['route']['route']))
+                                                        <span class="badge bg-light text-dark">Route: {{ $issue['route']['route'] }}</span>
+                                                    @endif
+                                                    @if(!empty($issue['route']['uri']))
+                                                        <span class="badge bg-light text-dark">URI: {{ $issue['route']['uri'] }}</span>
+                                                    @endif
+                                                    @if(!empty($issue['request']['method']) || !empty($issue['request']['url']))
+                                                        <span class="badge bg-light text-dark">{{ trim(($issue['request']['method'] ?? '') . ' ' . ($issue['request']['url'] ?? '')) }}</span>
+                                                    @endif
+                                                    @if(!empty($issue['request']['ip']))
+                                                        <span class="badge bg-light text-dark">IP: {{ $issue['request']['ip'] }}</span>
+                                                    @endif
+                                                </div>
+                                            @endif
+
+                                            @if(!empty($issue['sql']))
+                                                <div class="small mt-1">
+                                                    <code style="word-break:break-all;">SQL: {{ \Illuminate\Support\Str::limit($issue['sql'], 200) }}</code>
+                                                </div>
+                                            @endif
+
+                                            @if(!empty($issue['request']['payload']))
+                                                <div class="small mt-1">
+                                                    <code style="word-break:break-all;">Payload: {{ \Illuminate\Support\Str::limit(json_encode($issue['request']['payload'], JSON_UNESCAPED_SLASHES), 200) }}</code>
+                                                </div>
+                                            @endif
                                         </div>
                                         <a class="btn btn-primary btn-xs flex-shrink-0 ms-2"
                                            data-bs-toggle="collapse" data-bs-target="#{{ $fixId }}"
@@ -132,6 +181,46 @@
                                     </div>
                                 </div>
                             @endforeach
+                        </div>
+                    @endif
+
+                    @if(!empty($summary['activity']))
+                        <div class="mt-3">
+                            <a class="btn btn-light btn-sm" data-bs-toggle="collapse" data-bs-target="#log-activity"
+                               style="border:1px solid #dee2e6;">
+                                <i class="icon-info"></i>&nbsp;Info &amp; Debug activity
+                                ({{ $summary['activityCount'] }} distinct{{ $summary['activityCount'] > count($summary['activity']) ? ', top ' . count($summary['activity']) . ' shown' : '' }})
+                            </a>
+
+                            <div class="collapse mt-2" id="log-activity">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover mb-0">
+                                        <thead>
+                                        <tr>
+                                            <th style="width:90px;">Level</th>
+                                            <th style="width:60px;">Count</th>
+                                            <th>Message</th>
+                                            <th style="width:320px;">Seen</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+                                        @foreach($summary['activity'] as $item)
+                                            <tr>
+                                                <td><span class="badge bg-{{ $levelColors[$item['level']] ?? 'secondary' }}">{{ $item['level'] }}</span></td>
+                                                <td>&times;{{ $item['count'] }}</td>
+                                                <td>
+                                                    <code style="word-break:break-all;">{{ \Illuminate\Support\Str::limit($item['message'], 160) }}</code>
+                                                    @if(!empty($item['location']))
+                                                        <div class="small text-muted">{{ $item['location'] }}</div>
+                                                    @endif
+                                                </td>
+                                                <td class="small text-muted">first {{ $item['first'] }} &middot; last {{ $item['last'] }}</td>
+                                            </tr>
+                                        @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     @endif
                 @endif
