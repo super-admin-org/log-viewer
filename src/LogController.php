@@ -27,8 +27,21 @@ class LogController extends Controller
 
             $viewer = new LogViewer($file);
 
+            // Optional: narrow the table to a single level (used by the summary chips)
+            $level = strtoupper(trim((string)$request->get('level', '')));
+
+            // Filtering a 20-entry page usually leaves nothing to show, so widen
+            // the window when a level filter or a search term is in play.
+            $lines = ($level !== '' || $request->get('q')) ? 200 : 20;
+
             // Fetch logs exactly as your Blade expects
-            $logs = $viewer->fetch($offset);
+            $logs = $viewer->fetch($offset, $lines);
+
+            if ($level !== '') {
+                $logs = array_values(array_filter($logs, function ($row) use ($level) {
+                    return strtoupper($row['level'] ?? '') === $level;
+                }));
+            }
 
             // Optional: keyword search across common fields
             $q = trim((string)$request->get('q', ''));
@@ -69,6 +82,9 @@ class LogController extends Controller
                 'bypass_protected_urls_replace' => $viewer->bypass_protected_urls_replace,
                 // keep search term (if you added a search box)
                 'q' => $q ?? '',
+                // health summary: level counts + grouped issues with suggested fixes
+                'summary' => LogViewer::option('analyzer', true) ? $viewer->summary() : null,
+                'level' => $level,
             ]));
 
             $content->header($viewer->getFilePath());

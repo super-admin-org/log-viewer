@@ -1,3 +1,7 @@
+@if(!empty($summary))
+    @include('super-admin-logs::summary')
+@endif
+
 <div class="row">
     <div class="col-md-10">
         <div class="card card-primary">
@@ -10,6 +14,9 @@
                     <form method="GET"
                           action="{{ $current ? route('log-viewer-file', ['file' => $current]) : route('log-viewer-index') }}"
                           class="d-inline-block me-2">
+                        @if(!empty($level))
+                            <input type="hidden" name="level" value="{{ $level }}">
+                        @endif
                         <div class="input-group input-group-sm">
                             <input name="q" value="{{ $q ?? '' }}" type="text" class="form-control"
                                    placeholder="Search logs...">
@@ -36,13 +43,25 @@
                         </form>
                     @endif
 
+                    @php
+                        // Keep the search term and the level filter across pages.
+                        $carry = function ($url) {
+                            $extra = array_filter(['q' => request('q'), 'level' => request('level')]);
+
+                            if (!$extra) {
+                                return $url;
+                            }
+
+                            return $url . (Str::contains($url, '?') ? '&' : '?') . http_build_query($extra);
+                        };
+                    @endphp
                     <div class="btn-group">
                         @if ($prevUrl)
-                            <a href="{{ $prevUrl }}{{ request('q') ? (Str::contains($prevUrl,'?') ? '&' : '?') . 'q=' . urlencode(request('q')) : '' }}"
+                            <a href="{{ $carry($prevUrl) }}"
                                class="btn btn-light btn-sm"><i class="icon-chevron-left"></i></a>
                         @endif
                         @if ($nextUrl)
-                            <a href="{{ $nextUrl }}{{ request('q') ? (Str::contains($nextUrl,'?') ? '&' : '?') . 'q=' . urlencode(request('q')) : '' }}"
+                            <a href="{{ $carry($nextUrl) }}"
                                class="btn btn-light btn-sm"><i class="icon-chevron-right"></i></a>
                         @endif
 
@@ -64,10 +83,23 @@
                         </thead>
                         <tbody>
 
+                        @if(empty($logs))
+                            <tr>
+                                <td colspan="5" class="text-center text-muted" style="padding:20px;">
+                                    @if(!empty($level) || !empty($q))
+                                        No entries match this filter in the current page window.
+                                        <a href="{{ $current ? route('log-viewer-file', ['file' => $current]) : route('log-viewer-index') }}">Clear filters</a>
+                                    @else
+                                        This log file is empty.
+                                    @endif
+                                </td>
+                            </tr>
+                        @endif
+
                         @foreach($logs as $index => $log)
                             <tr>
                                 <td>
-                                    <span class="badge bg-{{\SuperAdmin\Admin\LogViewer\LogViewer::$levelColors[$log['level']]}}">{{ $log['level'] }}</span>
+                                    <span class="badge bg-{{ \SuperAdmin\Admin\LogViewer\LogViewer::$levelColors[$log['level']] ?? 'secondary' }}">{{ $log['level'] }}</span>
                                 </td>
                                 <td><strong>{{ $log['env'] }}</strong></td>
                                 <td style="width:150px;">{{ $log['time'] }}</td>

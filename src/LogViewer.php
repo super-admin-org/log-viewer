@@ -93,6 +93,36 @@ class LogViewer extends Extension
         $this->getFilePath();
     }
 
+    /**
+     * Read an extension option straight from the admin config.
+     *
+     * @param string $key
+     * @param mixed  $default
+     *
+     * @return mixed
+     */
+    public static function option($key, $default = null)
+    {
+        return config('admin.extensions.log-viewer.'.$key, $default);
+    }
+
+    /**
+     * Summarise the current log file: level counts plus the distinct problems
+     * behind them, each with a suggested fix.
+     *
+     * @return array
+     */
+    public function summary()
+    {
+        $analyzer = new LogAnalyzer(
+            $this->filePath,
+            static::option('analyzer_max_bytes', LogAnalyzer::DEFAULT_MAX_BYTES),
+            static::option('analyzer_max_issues', 8)
+        );
+
+        return $analyzer->analyze();
+    }
+
     public function set_bypass($file)
     {
         return str_replace($this->bypass_protected_urls_find, $this->bypass_protected_urls_replace, $file);
