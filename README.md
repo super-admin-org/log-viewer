@@ -44,6 +44,11 @@ Above the log table the viewer shows a summary of the current file:
   `token`, `secret`, `api_key`, …) are always masked, even if the app forgot to;
 * a **How to fix** panel with the likely cause, a remediation checklist and any
   artisan/shell commands that usually resolve it;
+* a **Full trace** panel — click it and the complete original entry for the
+  first occurrence expands inline, stack frames and all, decoded back into
+  readable form (Laravel escapes the whole exception into one JSON line, so the
+  raw bytes are close to unreadable). Activity rows get the same via
+  *show full entry*;
 * a collapsed **Info & Debug activity** panel below the issues — the most
   frequent non-error log lines, so you can see what's noisy without it
   crowding out actual problems.
@@ -75,9 +80,14 @@ All of it is configurable in `config/admin.php`:
         //'analyzer_max_bytes' => 2097152,   // how much of the tail to scan (default 2 MB)
         //'analyzer_max_issues' => 8,        // how many issues to list (default 8)
         //'analyzer_max_activity' => 6,      // how many Info/Debug rows to list (default 6)
+        //'analyzer_max_trace' => 32768,     // max bytes of one entry shown in Full trace (default 32 KB)
     ]
 ]
 ```
+
+Traces are not held in memory during the scan — only each issue's byte offset
+is, and the handful of entries actually displayed are re-read from the file
+afterwards. Memory stays flat regardless of how many distinct issues a log has.
 
 ### Seeing the request URL and payload on an error
 

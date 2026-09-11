@@ -93,17 +93,24 @@ class LogAnalyzer
     protected $maxActivity;
 
     /**
+     * @var int
+     */
+    protected $maxTrace;
+
+    /**
      * @param string   $path
      * @param int|null $maxBytes
      * @param int      $maxIssues
      * @param int      $maxActivity
+     * @param int      $maxTrace    how much of one entry to show as a sample
      */
-    public function __construct($path, $maxBytes = null, $maxIssues = 8, $maxActivity = 6)
+    public function __construct($path, $maxBytes = null, $maxIssues = 8, $maxActivity = 6, $maxTrace = 32768)
     {
         $this->path        = $path;
         $this->maxBytes    = $maxBytes ? (int) $maxBytes : self::DEFAULT_MAX_BYTES;
         $this->maxIssues   = (int) $maxIssues;
         $this->maxActivity = (int) $maxActivity;
+        $this->maxTrace    = (int) $maxTrace;
     }
 
     /**
@@ -163,9 +170,17 @@ class LogAnalyzer
         $groups  = [];
         $current = null;
 
+        // Each entry's byte range is remembered so the full original text can
+        // be re-read on demand for the few issues actually displayed, instead
+        // of holding every trace in memory during the scan.
+        $offset = ftell($handle);
+
         while (($line = fgets($handle)) !== false) {
+            $next = ftell($handle);
+
             if (preg_match(self::ENTRY_PATTERN, $line, $matches)) {
                 if ($current !== null) {
+                    $current['end'] = $offset;
                     $this->collect($current, $summary, $groups);
                 }
 
@@ -175,7 +190,11 @@ class LogAnalyzer
                     'level'   => strtoupper($matches[3]),
                     'message' => rtrim($matches[4]),
                     'trace'   => '',
+                    'start'   => $offset,
+                    'end'     => $next,
                 ];
+
+                $offset = $next;
 
                 continue;
             }
@@ -185,9 +204,12 @@ class LogAnalyzer
             if ($current !== null && strlen($current['trace']) < self::TRACE_SAMPLE) {
                 $current['trace'] .= $line;
             }
+
+            $offset = $next;
         }
 
         if ($current !== null) {
+            $current['end'] = $offset;
             $this->collect($current, $summary, $groups);
         }
 
@@ -279,6 +301,10 @@ class LogAnalyzer
             'sql'       => $this->sqlQuery($displayMessage),
             'request'   => $this->requestInfo($context),
             'haystack'  => substr($displayMessage.' '.$traceText, 0, 8000),
+            // Byte range of this first occurrence, so its full original text
+            // can be fetched later if this group makes the displayed list.
+            'start'     => isset($entry['start']) ? $entry['start'] : 0,
+            'end'       => isset($entry['end']) ? $entry['end'] : 0,
         ];
     }
 
@@ -317,7 +343,7 @@ class LogAnalyzer
             unset($issues[$index]['haystack']);
         }
 
-        return $issues;
+        return $this->attachSamples($issues);
     }
 
     /**
@@ -346,7 +372,135 @@ class LogAnalyzer
             unset($items[$index]['haystack'], $items[$index]['solution']);
         }
 
+        return $this->attachSamples($items);
+    }
+
+    /**
+     * Re-read the first occurrence of each displayed group straight from the
+     * file, so the UI can show the complete original entry - full stack trace
+     * included - without the scan having to hold every trace in memory.
+     *
+     * @param array $items
+     *
+     * @return array
+     */
+    protected function attachSamples(array $items)
+    {
+        if (!$items) {
+            return $items;
+        }
+
+        $handle = @fopen($this->path, 'rb');
+
+        foreach ($items as $index => $item) {
+            $items[$index]['sample'] = $handle
+                ? $this->readSample($handle, $item['start'], $item['end'])
+                : '';
+
+            unset($items[$index]['start'], $items[$index]['end']);
+        }
+
+        if ($handle) {
+            fclose($handle);
+        }
+
         return $items;
+    }
+
+    /**
+     * Read one entry's byte range and make it readable.
+     *
+     * @param resource $handle
+     * @param int      $start
+     * @param int      $end
+     *
+     * @return string
+     */
+    protected function readSample($handle, $start, $end)
+    {
+        $length = $end - $start;
+
+        if ($length <= 0) {
+            return '';
+        }
+
+        $truncated = false;
+
+        if ($length > $this->maxTrace) {
+            $length    = $this->maxTrace;
+            $truncated = true;
+        }
+
+        if (fseek($handle, $start) !== 0) {
+            return '';
+        }
+
+        $raw = fread($handle, $length);
+
+        if ($raw === false || $raw === '') {
+            return '';
+        }
+
+        $sample = $this->formatSample(rtrim($raw));
+
+        if ($truncated) {
+            $sample .= "\n\n... entry truncated at ".$this->maxTrace." bytes ...";
+        }
+
+        return $sample;
+    }
+
+    /**
+     * Laravel escapes the whole exception - newlines and all - into the JSON
+     * context, which is unreadable as raw bytes. Decode it back into a real
+     * multi-line stack trace when possible, and leave the text alone when not.
+     *
+     * @param string $raw
+     *
+     * @return string
+     */
+    protected function formatSample($raw)
+    {
+        // Search the whole entry, not just its first line: a message can carry
+        // real newlines of its own (a Postgres "CONTEXT:" detail, for example)
+        // before the JSON context block even starts.
+        $boundary = $this->contextBoundary($raw);
+
+        if ($boundary === false) {
+            return $raw;
+        }
+
+        $prefix  = rtrim(substr($raw, 0, $boundary));
+        $context = json_decode(substr($raw, $boundary + 1), true);
+
+        if (!is_array($context)) {
+            // Not decodable - either the entry was truncated mid-JSON, or the
+            // app's formatter leaves real newlines inside the JSON string
+            // (Monolog with inline line breaks). Unescape it for display
+            // anyway, which is what makes a trace readable at all.
+            return $prefix."\n\n".$this->unescape(substr($raw, $boundary + 1));
+        }
+
+        $out = $prefix;
+
+        if (isset($context['exception']) && is_string($context['exception'])) {
+            $out .= "\n\n".trim($context['exception']);
+
+            unset($context['exception']);
+        }
+
+        if ($context) {
+            $encoded = json_encode(
+                $this->redact($context),
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            );
+
+            if ($encoded !== false) {
+                $out .= "\n\ncontext: ".$encoded;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -439,6 +593,37 @@ class LogAnalyzer
         }
 
         return $message;
+    }
+
+    /**
+     * Undo JSON string escaping for display. Each backslash pair is consumed
+     * atomically left to right, so an escaped backslash followed by "n" is
+     * not mistaken for a newline the way sequential str_replace calls would.
+     *
+     * @param string $text
+     *
+     * @return string
+     */
+    protected function unescape($text)
+    {
+        return preg_replace_callback('/\\\\(.)/s', function ($matches) {
+            switch ($matches[1]) {
+                case 'n':
+                    return "\n";
+                case 't':
+                    return "\t";
+                case 'r':
+                    return '';
+                case '/':
+                    return '/';
+                case '"':
+                    return '"';
+                case '\\':
+                    return '\\';
+                default:
+                    return $matches[0];
+            }
+        }, $text);
     }
 
     /**

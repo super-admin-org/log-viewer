@@ -94,7 +94,10 @@
 
                         <div class="list-group">
                             @foreach($summary['issues'] as $i => $issue)
-                                @php $fixId = 'log-fix-' . $i; @endphp
+                                @php
+                                    $fixId   = 'log-fix-' . $i;
+                                    $traceId = 'log-trace-' . $i;
+                                @endphp
                                 <div class="list-group-item" style="border-left:3px solid var(--bs-{{ $levelColors[$issue['level']] ?? 'secondary' }}, #6c757d);">
                                     <div class="d-flex justify-content-between align-items-start">
                                         <div style="min-width:0;">
@@ -142,12 +145,31 @@
                                                 </div>
                                             @endif
                                         </div>
-                                        <a class="btn btn-primary btn-xs flex-shrink-0 ms-2"
-                                           data-bs-toggle="collapse" data-bs-target="#{{ $fixId }}"
-                                           style="white-space:nowrap;">
-                                            <i class="icon-info"></i>&nbsp;How to fix
-                                        </a>
+                                        <div class="flex-shrink-0 ms-2 text-end" style="white-space:nowrap;">
+                                            <a class="btn btn-primary btn-xs"
+                                               data-bs-toggle="collapse" data-bs-target="#{{ $fixId }}">
+                                                <i class="icon-info"></i>&nbsp;How to fix
+                                            </a>
+                                            @if(!empty($issue['sample']))
+                                                <a class="btn btn-light btn-xs mt-1"
+                                                   data-bs-toggle="collapse" data-bs-target="#{{ $traceId }}"
+                                                   style="border:1px solid #dee2e6;">
+                                                    <i class="icon-search"></i>&nbsp;Full trace
+                                                </a>
+                                            @endif
+                                        </div>
                                     </div>
+
+                                    @if(!empty($issue['sample']))
+                                        <div class="collapse mt-2" id="{{ $traceId }}">
+                                            <div class="small text-muted mb-1">
+                                                First of {{ $issue['count'] }}
+                                                {{ \Illuminate\Support\Str::plural('occurrence', $issue['count']) }},
+                                                logged {{ $issue['first'] }} — the complete entry as written to the file.
+                                            </div>
+                                            <div style="white-space:pre-wrap;word-break:break-word;background:#1e1e1e;color:#e8e8e8;padding:10px;border-radius:4px;max-height:460px;overflow:auto;font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.5;">{{ $issue['sample'] }}</div>
+                                        </div>
+                                    @endif
 
                                     <div class="collapse mt-2" id="{{ $fixId }}">
                                         <div style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:4px;padding:10px;">
@@ -204,7 +226,8 @@
                                         </tr>
                                         </thead>
                                         <tbody>
-                                        @foreach($summary['activity'] as $item)
+                                        @foreach($summary['activity'] as $a => $item)
+                                            @php $activityId = 'log-activity-' . $a; @endphp
                                             <tr>
                                                 <td><span class="badge bg-{{ $levelColors[$item['level']] ?? 'secondary' }}">{{ $item['level'] }}</span></td>
                                                 <td>&times;{{ $item['count'] }}</td>
@@ -213,9 +236,23 @@
                                                     @if(!empty($item['location']))
                                                         <div class="small text-muted">{{ $item['location'] }}</div>
                                                     @endif
+                                                    @if(!empty($item['sample']))
+                                                        <a class="small" style="cursor:pointer;"
+                                                           data-bs-toggle="collapse" data-bs-target="#{{ $activityId }}">
+                                                            show full entry
+                                                        </a>
+                                                    @endif
                                                 </td>
                                                 <td class="small text-muted">first {{ $item['first'] }} &middot; last {{ $item['last'] }}</td>
                                             </tr>
+                                            @if(!empty($item['sample']))
+                                                <tr>
+                                                    <td colspan="4" class="p-0 border-0">
+                                                        <div class="collapse" id="{{ $activityId }}"
+                                                             style="white-space:pre-wrap;word-break:break-word;background:#1e1e1e;color:#e8e8e8;padding:10px;border-radius:4px;max-height:360px;overflow:auto;font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.5;">{{ $item['sample'] }}</div>
+                                                    </td>
+                                                </tr>
+                                            @endif
                                         @endforeach
                                         </tbody>
                                     </table>
