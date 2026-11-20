@@ -4,8 +4,8 @@
 
 <div class="row">
     <div class="col-md-10">
-        <div class="card card-primary">
-            <div class="card-header with-border">
+        <div class="card">
+            <div class="card-header">
                 <button type="button" class="btn btn-primary btn-sm log-refresh"><i
                             class="icon-refresh"></i> {{ trans('admin.refresh') }}</button>
                 <button type="button" class="btn btn-light btn-sm log-live"><i id="live-indicator"
@@ -69,9 +69,9 @@
                 </div>
             </div>
 
-            <div class="card-body no-padding">
+            <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-hover">
+                    <table class="table table-hover log-table mb-0">
                         <thead>
                         <tr>
                             <th>Level</th>
@@ -106,7 +106,7 @@
                                 <td><code style="word-break: break-all;">{{ $log['info'] }}</code></td>
                                 <td>
                                     @if(!empty($log['trace']))
-                                        <a class="btn btn-primary btn-xs" style="position:absolute;right:20px;"
+                                        <a class="btn btn-primary btn-xs"
                                            data-bs-toggle="collapse" data-bs-target="#trace-{{$index}}"><i
                                                     class="icon-info"></i>&nbsp;Exception&nbsp;</a>
                                     @endif
@@ -131,35 +131,30 @@
 
     <div class="col-md-2">
 
-        <div class="card card-solid">
-            <div class="card-header with-border">
+        <div class="card">
+            <div class="card-header">
                 <h3 class="card-title">Files</h3>
             </div>
-            <div class="card-body no-padding">
-                <ul class="nav nav-pills flex-column">
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
                     @foreach($logFiles as $logFile)
-                        <li @if($logFile == $fileName)class="active"@endif>
-                            <a href="{{ route('log-viewer-file', ['file' => str_replace($bypass_protected_urls_find,$bypass_protected_urls_replace,$logFile)]) }}"><i
-                                        class="icon-{{ ($logFile == $fileName) ? 'folder-open' : 'folder' }}"></i>{{ $logFile }}
-                            </a>
-                        </li>
+                        <a href="{{ route('log-viewer-file', ['file' => str_replace($bypass_protected_urls_find,$bypass_protected_urls_replace,$logFile)]) }}"
+                           class="list-group-item list-group-item-action text-break {{ $logFile == $fileName ? 'active' : '' }}">
+                            <i class="icon-{{ ($logFile == $fileName) ? 'folder-open' : 'folder' }} me-1"></i>{{ $logFile }}
+                        </a>
                     @endforeach
-                </ul>
+                </div>
             </div>
         </div>
 
-        <div class="card card-solid mt-4">
-            <div class="card-header with-border">
+        <div class="card mt-4">
+            <div class="card-header">
                 <h3 class="card-title">Info</h3>
             </div>
-            <div class="card-body no-padding">
-                <ul class="nav nav-pills nav-stacked">
-                    <li class="margin: 10px;">
-                        <a>Size: {{ $size }}</a>
-                    </li>
-                    <li class="margin: 10px;">
-                        <a>Updated at: {{ date('Y-m-d H:i:s', filectime($filePath)) }}</a>
-                    </li>
+            <div class="card-body p-0">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item small">Size: {{ $size }}</li>
+                    <li class="list-group-item small">Updated at: {{ date('Y-m-d H:i:s', filectime($filePath)) }}</li>
                 </ul>
             </div>
         </div>
@@ -184,8 +179,9 @@
             var data = {offset: pos}
             admin.ajax.get(url, data, function (response) {
                 var logs = response.data.logs;
-                for (var i in logs) {
-                    $('table > tbody > tr:first').before(logs[i]);
+                var body = document.querySelector('.log-table > tbody');
+                for (var i = logs.length - 1; i >= 0; i--) {
+                    body.insertAdjacentHTML('afterbegin', logs[i]);
                 }
                 changePos(data.pos);
             });

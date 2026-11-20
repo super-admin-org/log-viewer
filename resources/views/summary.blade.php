@@ -33,8 +33,8 @@
 
 <div class="row">
     <div class="col-md-12">
-        <div class="card card-primary">
-            <div class="card-header with-border">
+        <div class="card mb-4">
+            <div class="card-header">
                 <h3 class="card-title" style="font-weight:600;">
                     <i class="icon-info"></i>&nbsp;Summary
                 </h3>
@@ -85,7 +85,7 @@
                         </div>
 
                         @unless($hasRequestContext)
-                            <div class="small text-muted mb-2" style="border-left:3px solid #dee2e6;padding-left:8px;">
+                            <div class="small text-muted mb-2" style="border-left:3px solid var(--sa-border, #dee2e6);padding-left:8px;">
                                 Want the request URL, method and submitted data attached to errors like
                                 these? See the README for a small addition to your app's exception
                                 handler - once added, this panel picks it up automatically.
@@ -98,7 +98,7 @@
                                     $fixId   = 'log-fix-' . $i;
                                     $traceId = 'log-trace-' . $i;
                                 @endphp
-                                <div class="list-group-item" style="border-left:3px solid var(--bs-{{ $levelColors[$issue['level']] ?? 'secondary' }}, #6c757d);">
+                                <div class="list-group-item" style="border-left:3px solid var(--sa-{{ $levelColors[$issue['level']] ?? 'secondary' }}, #6c757d);">
                                     <div class="d-flex justify-content-between align-items-start">
                                         <div style="min-width:0;">
                                             <span class="badge bg-{{ $levelColors[$issue['level']] ?? 'secondary' }}">{{ $issue['level'] }}</span>
@@ -153,7 +153,7 @@
                                             @if(!empty($issue['sample']))
                                                 <a class="btn btn-light btn-xs mt-1"
                                                    data-bs-toggle="collapse" data-bs-target="#{{ $traceId }}"
-                                                   style="border:1px solid #dee2e6;">
+                                                   style="border:1px solid var(--sa-border, #dee2e6);">
                                                     <i class="icon-search"></i>&nbsp;Full trace
                                                 </a>
                                             @endif
@@ -172,7 +172,7 @@
                                     @endif
 
                                     <div class="collapse mt-2" id="{{ $fixId }}">
-                                        <div style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:4px;padding:10px;">
+                                        <div style="background:var(--sa-surface-muted, #f6f8fa);border:1px solid var(--sa-border, #e1e4e8);border-radius:4px;padding:10px;">
                                             <strong>{{ $issue['solution']['title'] }}</strong>
                                             @if($issue['solution']['confidence'] === 'generic')
                                                 <span class="badge bg-secondary">no known signature</span>
@@ -209,7 +209,7 @@
                     @if(!empty($summary['activity']))
                         <div class="mt-3">
                             <a class="btn btn-light btn-sm" data-bs-toggle="collapse" data-bs-target="#log-activity"
-                               style="border:1px solid #dee2e6;">
+                               style="border:1px solid var(--sa-border, #dee2e6);">
                                 <i class="icon-info"></i>&nbsp;Info &amp; Debug activity
                                 ({{ $summary['activityCount'] }} distinct{{ $summary['activityCount'] > count($summary['activity']) ? ', top ' . count($summary['activity']) . ' shown' : '' }})
                             </a>

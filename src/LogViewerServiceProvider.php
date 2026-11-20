@@ -8,7 +8,12 @@ class LogViewerServiceProvider extends ServiceProvider
 {
     public function boot()
     {
-        $this->loadViewsFrom(__DIR__.'/../resources/views', 'super-admin-logs');
+        // Template-aware: <views>/<template>/ and <template>/extensions/super-admin-logs/ override <views>/.
+        if (class_exists(\SuperAdmin\Admin\Template\TemplateManager::class)) {
+            \SuperAdmin\Admin\Facades\Admin::template()->extensionViews('super-admin-logs', __DIR__.'/../resources/views');
+        } else {
+            $this->loadViewsFrom(__DIR__.'/../resources/views', 'super-admin-logs');
+        }
 
         LogViewer::boot();
     }

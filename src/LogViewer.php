@@ -356,27 +356,27 @@ class LogViewer extends Extension
      */
     protected function renderTableRow($log)
     {
-        $color = self::$levelColors[$log['level']] ?? 'black';
+        $color = self::$levelColors[$log['level']] ?? 'secondary';
 
         $index = uniqid();
 
         $button = '';
 
         if (!empty($log['trace'])) {
-            $button = "<a class=\"btn btn-primary btn-xs\" data-toggle=\"collapse\" data-target=\".trace-{$index}\"><i class=\"fa fa-info\"></i>&nbsp;&nbsp;Exception</a>";
+            $button = "<a class=\"btn btn-primary btn-xs\" data-bs-toggle=\"collapse\" data-bs-target=\"#trace-{$index}\"><i class=\"icon-info\"></i>&nbsp;&nbsp;Exception</a>";
         }
 
         $trace = '';
 
         if (!empty($log['trace'])) {
-            $trace = "<tr class=\"collapse trace-{$index}\">
+            $trace = "<tr class=\"collapse\" id=\"trace-{$index}\">
     <td colspan=\"5\"><div style=\"white-space: pre-wrap;background: #333;color: #fff; padding: 10px;\">{$log['trace']}</div></td>
 </tr>";
         }
 
         return <<<TPL
 <tr style="background-color: rgb(255, 255, 213);">
-    <td><span class="label bg-{$color}">{$log['level']}</span></td>
+    <td><span class="badge bg-{$color}">{$log['level']}</span></td>
     <td><strong>{$log['env']}</strong></td>
     <td  style="width:150px;">{$log['time']}</td>
     <td><code>{$log['info']}</code></td>
