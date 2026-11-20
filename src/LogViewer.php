@@ -58,9 +58,9 @@ class LogViewer extends Extension
      */
     public static $levelColors = [
         'EMERGENCY' => 'danger',
-        'ALERT'     => 'primary',
+        'ALERT'     => 'danger',
         'CRITICAL'  => 'danger',
-        'ERROR'     => 'warning',
+        'ERROR'     => 'danger',
         'WARNING'   => 'warning',
         'NOTICE'    => 'info',
         'INFO'      => 'info',
